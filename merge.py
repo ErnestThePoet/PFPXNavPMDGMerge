@@ -195,6 +195,8 @@ def merge_airports_apt():
         )
         new_airport_icaos.append(airport["code"])
 
+    lines.sort(key=lambda x: (float(x[4:14]), float(x[14:25])))
+
     with open("merged/airports.dat", "w") as fout:
         fout.writelines(lines)
 
@@ -213,6 +215,8 @@ def merge_airports_apt():
                 f"{runway['lat']:>10s}{runway['lon']:>11s}"
                 f"000.00{runway['heading']}{icao_airport_map[icao]['elev']}\n"
             )
+
+    apt_lines.sort(key=lambda x: (float(x[39:49]), float(x[49:60])))
 
     with open("merged/wpNavAPT.txt", "w") as fout:
         fout.writelines(apt_lines)
@@ -254,6 +258,8 @@ def merge_fix(use_pfpx_coords: bool = True):
             f"{waypoint['code']:<24s}{waypoint['code']:<5s}"
             f"{waypoint['lat']:>10s}{waypoint['lon']:>11s}\n"
         )
+
+    lines.sort(key=lambda x: (float(x[29:39]), float(x[39:50])))
 
     with open("merged/wpNavFIX.txt", "w") as fout:
         fout.writelines(lines)
@@ -305,12 +311,14 @@ def merge_aid(use_pfpx_coords: bool = True):
             f"{'N' if navaid['type'] == 'NDB' else 'H'}\n"
         )
 
+    lines.sort(key=lambda x: (float(x[33:43]), float(x[43:54])))
+
     with open("merged/wpNavAID.txt", "w") as fout:
         fout.writelines(lines)
 
 
 def recreate_rte():
-    result_lines = []
+    rte_lines = []
 
     for airway_code in airways:
         airway = airways[airway_code]
@@ -344,7 +352,7 @@ def recreate_rte():
         while len(topo_stack) > 0:
             current_wpt = topo_stack.pop()
 
-            result_lines.append(
+            rte_lines.append(
                 " ".join([airway_code,
                           f"{current_number:03d}",
                           id_point_map[current_wpt]["code"],
@@ -361,8 +369,10 @@ def recreate_rte():
                         if indegrees[next_wpt] == 0:
                             topo_stack.append(next_wpt)
 
+    rte_lines.sort(key=lambda x: x.split(" ")[0])
+
     with open("./merged/wpNavRTE.txt", "w") as fout:
-        fout.writelines(result_lines)
+        fout.writelines(rte_lines)
 
 
 icao_runways_map, id_point_map, icao_airport_map, waypoints, navaids, airways = read_pfpx_database()
