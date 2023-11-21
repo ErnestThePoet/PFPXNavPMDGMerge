@@ -153,6 +153,30 @@ def read_pfpx_database():
         return icao_runways_map, id_point_map, icao_airport_map, waypoints, navaids, airways
 
 
+def apply_airway_coords():
+    for airway_code in airways:
+        airway = airways[airway_code]
+
+        for edge in airway:
+            if edge["start_wpt"] in id_point_map:
+                point = id_point_map[edge["start_wpt"]]
+
+                if edge["start_lat"] != point["lat"]:
+                    point["lat"] = edge["start_lat"]
+
+                if edge["start_lon"] != point["lon"]:
+                    point["lon"] = edge["start_lon"]
+
+            if edge["end_wpt"] in id_point_map:
+                point = id_point_map[edge["end_wpt"]]
+
+                if edge["end_lat"] != point["lat"]:
+                    point["lat"] = edge["end_lat"]
+
+                if edge["end_lon"] != point["lon"]:
+                    point["lon"] = edge["end_lon"]
+
+
 def merge_airports_apt():
     with open("./PMDG/airports.dat", "r") as fin:
         lines = list(filter(lambda x: x != "" and not x.startswith(";"), fin.readlines()))
@@ -194,20 +218,36 @@ def merge_airports_apt():
         fout.writelines(apt_lines)
 
 
-def merge_fix():
+def merge_fix(use_pfpx_coords: bool = True):
     with open("./PMDG/wpNavFIX.txt", "r") as fin:
         lines = list(filter(lambda x: x != "" and not x.startswith(";"), fin.readlines()))
 
-    existing_wpts: dict[str, list[tuple[float, float]]] = {}
+    existing_wpts: dict[str, list[tuple[int, float, float]]] = {}
 
-    for line in lines:
-        dict_append(existing_wpts, line[:24].strip(), (float(line[29:39]), float(line[39:50])))
+    for line_index, line in enumerate(lines):
+        dict_append(
+            existing_wpts, line[:24].strip(), (line_index, float(line[29:39]), float(line[39:50])))
 
     for waypoint in waypoints:
         if waypoint["code"] in existing_wpts:
-            if any([geopy.distance.distance(
-                    x, (float(waypoint["lat"]), float(waypoint["lon"])))
-                            .nautical <= 2 for x in existing_wpts[waypoint["code"]]]):
+            already_existing = False
+            existing_line_index = -1
+            for existing_wpt in existing_wpts[waypoint["code"]]:
+                if geopy.distance.distance(
+                        (existing_wpt[1], existing_wpt[2]),
+                        (float(waypoint["lat"]), float(waypoint["lon"]))).nautical <= 2:
+                    already_existing = True
+                    existing_line_index = existing_wpt[0]
+                    break
+
+            if already_existing:
+                if use_pfpx_coords:
+                    existing_line = lines[existing_line_index]
+                    if existing_line[29:39].strip() != waypoint["lat"] or \
+                            existing_line[39:50].strip() != waypoint["lon"]:
+                        lines[existing_line_index] = \
+                            f"{existing_line[:29]}" \
+                            f"{waypoint['lat']:>10s}{waypoint['lon']:>11s}\n"
                 continue
 
         lines.append(
@@ -219,26 +259,44 @@ def merge_fix():
         fout.writelines(lines)
 
 
-def merge_aid():
+def merge_aid(use_pfpx_coords: bool = True):
     with open("./PMDG/wpNavAID.txt", "r") as fin:
         lines = list(filter(lambda x: x != "" and not x.startswith(";"), fin.readlines()))
 
-    existing_navaids: dict[str, list[tuple[str, float, float]]] = {}
+    existing_navaids: dict[str, list[tuple[int, str, float, float]]] = {}
 
-    for line in lines:
+    for line_index, line in enumerate(lines):
         # Only check VORD/VOR/DME/NDBs
         navaid_type = line[29:33].strip()
         if navaid_type not in ("VORD", "VOR", "DME", "NDB"):
             continue
 
         dict_append(existing_navaids, line[24:29].strip(),
-                    (navaid_type, float(line[33:43]), float(line[43:54])))
+                    (line_index, navaid_type, float(line[33:43]), float(line[43:54])))
 
     for navaid in navaids:
         if navaid["code"] in existing_navaids:
-            if any([navaid["type"] == x[0] and geopy.distance.distance(
-                    (x[1], x[2]), (float(navaid["lat"]), float(navaid["lon"])))
-                    .nautical <= 2 for x in existing_navaids[navaid["code"]]]):
+            already_existing = False
+            existing_line_index = -1
+            for existing_navaid in existing_navaids[navaid["code"]]:
+                if navaid["type"] == existing_navaid[1] and \
+                        geopy.distance.distance(
+                            (existing_navaid[2], existing_navaid[3]),
+                            (float(navaid["lat"]), float(navaid["lon"]))).nautical <= 2:
+                    already_existing = True
+                    existing_line_index = existing_navaid[0]
+                    break
+
+            if already_existing:
+                if use_pfpx_coords:
+                    existing_line = lines[existing_line_index]
+
+                    if existing_line[33:43].strip() != navaid["lat"] or \
+                            existing_line[43:54].strip() != navaid["lon"]:
+                        lines[existing_line_index] = \
+                            f"{existing_line[:33]}" \
+                            f"{navaid['lat']:>10s}{navaid['lon']:>11s}" \
+                            f"{existing_line[54:]}"
                 continue
 
         lines.append(
@@ -308,6 +366,7 @@ def recreate_rte():
 
 
 icao_runways_map, id_point_map, icao_airport_map, waypoints, navaids, airways = read_pfpx_database()
+apply_airway_coords()
 merge_airports_apt()
 merge_fix()
 merge_aid()
